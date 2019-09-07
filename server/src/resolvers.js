@@ -1,31 +1,29 @@
 const { paginateResults } = require('./utils');
+const  LaunchAPI = require('./datasources/launch')
 
 module.exports = {
   Query: {
     launches: async (_, { pageSize = 20, after }, { dataSources }) => {
-      const allLaunches = await dataSources.launchAPI.getAllLaunches();
-      // we want these in reverse chronological order
-      allLaunches.reverse();
-
-      const launches = paginateResults({
-        after,
+      const launches = await dataSources.launchAPI.getAllLaunches(
         pageSize,
-        results: allLaunches,
-      });
+        after
+      );
 
       return {
         launches,
         cursor: launches.length ? launches[launches.length - 1].cursor : null,
-        // if the cursor of the end of the paginated results is the same as the
-        // last item in _all_ results, then there are no more results after this
-        hasMore: launches.length
-          ? launches[launches.length - 1].cursor !==
-            allLaunches[allLaunches.length - 1].cursor
-          : false,
+        hasMore: false
       };
     },
-    launch: (_, { id }, { dataSources }) =>
-      dataSources.launchAPI.getLaunchById({ launchId: id }),
+    launch: (_, { id }, { DataLoader }) => {
+      const res = DataLoader.getLaunchesByIds
+        .load(parseInt(id))
+        .then(v => v && { ...v, id: v.flight_number });
+      return res;
+    },
+    ship: (_, { id }, { DataLoader }) => {
+      return { id };
+    },
     me: async (_, __, { dataSources }) =>
       dataSources.userAPI.findOrCreateUser(),
   },
@@ -71,6 +69,38 @@ module.exports = {
   Launch: {
     isBooked: async (launch, _, { dataSources }) =>
       dataSources.userAPI.isBookedOnLaunch({ launchId: launch.id }),
+      site: async (launch, _, { DataLoader }) =>
+      (await DataLoader.getLaunchesByIds.load(launch.id)).launch_site.site_name,
+    mission: async (launch, _, { DataLoader }) => {
+      const res = await DataLoader.getLaunchesByIds.load(launch.id);
+      return {
+        name: res.mission_name,
+        missionPatchSmall: res.links.mission_patch_small,
+        missionPatchLarge: res.links.mission_patch
+      };
+    },
+    rocket: async (launch, _, { DataLoader }) =>
+      (await DataLoader.getLaunchesByIds.load(launch.id)).rocket,
+    ships: async (launch, _, { DataLoader }) =>
+      (await DataLoader.getLaunchesByIds.load(launch.id)).ships.map(ship => ({
+        id: ship
+      }))
+  },
+  Rocket: {
+    id: rocket => rocket.rocket_id,
+    name: rocket => rocket.rocket_name,
+    type: rocket => rocket.rocket_type
+  },
+  Ship: {
+    launches: async (ship, _, { DataLoader }) => {
+      const ship_res = await DataLoader.getShipById.load(ship.id.toUpperCase());
+      if (!ship_res || !ship_res.missions) return [];
+      const flights_id = ship_res.missions.map(v => v.flight);
+      return flights_id.map(v => ({ id: v }));
+      // return DataLoader.getLaunchesByIds
+      //   .loadMany(flights_id)
+      //   .then(res => res.map(v => v && launchReducer(v)));
+    }
   },
   Mission: {
     // make sure the default size is 'large' in case user doesn't specify
@@ -81,7 +111,7 @@ module.exports = {
     },
   },
   User: {
-    trips: async (_, __, { dataSources }) => {
+    trips: async (_, __, { dataSources, DataLoader }) => {
       // get ids of launches by user
       const launchIds = await dataSources.userAPI.getLaunchIdsByUser();
 
@@ -89,9 +119,9 @@ module.exports = {
 
       // look up those launches by their ids
       return (
-        dataSources.launchAPI.getLaunchesByIds({
-          launchIds,
-        }) || []
+        DataLoader.getLaunchesByIds
+          .loadMany(launchIds)
+          .then(res => res.map(v => new LaunchAPI().launchReducer(v))) || []
       );
     },
   },

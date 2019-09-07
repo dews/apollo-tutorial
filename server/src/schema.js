@@ -14,6 +14,7 @@ const typeDefs = gql`
     ): LaunchConnection!
     launch(id: ID!): Launch
     me: User
+    ship(id:ID!): Ship
   }
 
   type Mutation {
@@ -49,6 +50,7 @@ const typeDefs = gql`
     mission: Mission
     rocket: Rocket
     isBooked: Boolean!
+    ships: [Ship]
   }
 
   type Rocket {
@@ -66,6 +68,11 @@ const typeDefs = gql`
   type Mission {
     name: String
     missionPatch(size: PatchSize): String
+  }
+
+  type Ship {
+    id: ID!
+    launches: [Launch]
   }
 
   enum PatchSize {

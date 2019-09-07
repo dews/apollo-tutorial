@@ -11,15 +11,22 @@ const LaunchAPI = require('./datasources/launch');
 const UserAPI = require('./datasources/user');
 
 const internalEngineDemo = require('./engine-demo');
-
+const DataLoader = require("dataloader");
 // creates a sequelize connection once. NOT for every request
 const store = createStore();
-
+let launchAPI = new LaunchAPI();
 // set up any dataSources our resolvers need
 const dataSources = () => ({
-  launchAPI: new LaunchAPI(),
-  userAPI: new UserAPI({ store }),
+  launchAPI: launchAPI,
+  userAPI: new UserAPI({ store })
 });
+
+const dataLoader = {
+  getLaunchesByIds: new DataLoader(keys => {
+    return launchAPI.getLaunchesByIds(keys);
+  }),
+  getShipById: new DataLoader(keys => launchAPI.getShipsByIds(keys))
+};
 
 // the function that sets up the global context for each resolver, using the req
 const context = async ({ req }) => {
@@ -33,7 +40,7 @@ const context = async ({ req }) => {
   const users = await store.users.findOrCreate({ where: { email } });
   const user = users && users[0] ? users[0] : null;
 
-  return { user: { ...user.dataValues } };
+  return { user: { ...user.dataValues }, DataLoader: dataLoader };
 };
 
 // Set up Apollo Server
@@ -42,10 +49,19 @@ const server = new ApolloServer({
   resolvers,
   dataSources,
   context,
+  // mocks: {
+  //   Int: () => 6,
+  //   Float: () => 22.1,
+  //   String: () => "Hello2",
+  //   User: () => ({ email: () => "email" , trips:()=>([{site:'a'},{id:'id'},{site:'b'}])}),
+  //   Launch: () => ({site:'site',id:new Date()}),
+  // },
+  // mockEntireSchema: true,
   engine: {
     apiKey: process.env.ENGINE_API_KEY,
     ...internalEngineDemo,
   },
+  tracing: true
 });
 
 // Start our server if we're not in a test env.
